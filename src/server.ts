@@ -1,6 +1,11 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
@@ -19,10 +24,12 @@ export class JinaReaderServer {
       },
       {
         capabilities: {
+          prompts: {},
           tools: {},
         },
       }
     );
+    this.setupPromptHandlers();
     this.setupToolHandlers();
     this.setupErrorHandling();
   }
@@ -46,6 +53,47 @@ export class JinaReaderServer {
     process.on("SIGINT", async () => {
       await this.server.close();
       process.exit(0);
+    });
+  }
+
+  private setupPromptHandlers(): void {
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      return {
+        prompts: [
+          {
+            name: "fetch_url_content",
+            description: "Fetch the content of a URL as Markdown.",
+            arguments: [
+              {
+                name: "url",
+                description: "The URL to fetch the content of.",
+                required: true,
+              },
+            ],
+          },
+        ],
+      };
+    });
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      switch (name) {
+        case "fetch_url_content": {
+          const parsed = FetchUrlArgsSchema.parse(args);
+          const content = await this.fetchWithJinaReader(parsed.url);
+          return {
+            description: `Content of ${parsed.url}`,
+            messages: [
+              {
+                role: "user",
+                content: { type: "text", text: content },
+              },
+            ],
+          };
+        }
+        default: {
+          throw new Error(`Unknown prompt: ${name}`);
+        }
+      }
     });
   }
 
